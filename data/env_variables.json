@@ -1,0 +1,66 @@
+{
+  "stones": {
+    "colors": {
+      "red": {
+        "display_color": [
+          255,
+          0,
+          0
+        ],
+        "top_range": [
+          255,
+          255,
+          255
+        ],
+        "bottom_range": [
+          255,
+          255,
+          255
+        ],
+        "label": 0
+      },
+      "yellow": {
+        "display_color": [
+          255,
+          255,
+          200
+        ],
+        "top_range": [
+          50,
+          217,
+          191
+        ],
+        "bottom_range": [
+          10,
+          129,
+          103
+        ],
+        "label": 1
+      },
+      "blue": {
+        "display_color": [
+          0,
+          100,
+          255
+        ],
+        "top_range": [
+          150,
+          255,
+          150
+        ],
+        "bottom_range": [
+          100,
+          100,
+          0
+        ],
+        "label": 2
+      }
+    },
+  "min_area": 25,
+  "draw_radius": 5,
+  "axis_tolerance": 5
+  },
+  "diameters": {
+    "house_size": 90
+  }
+}
