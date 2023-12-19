@@ -60,7 +60,8 @@
   "draw_radius": 5,
   "axis_tolerance": 5
   },
-  "diameters": {
-    "house_size": 90
+  "house": {
+    "house_size": 90,
+    "rolling_center_n": 30
   }
 }

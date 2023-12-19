@@ -40,6 +40,7 @@ class StoneInfo(StoneData):
 
 class HouseDetect:
 
+    # TODO Write ReadMe. Publish to LinkedIn?
     def __init__(self, env_variables_file, image = None):
         if image is not None:
             self.original = image.copy()
@@ -50,6 +51,14 @@ class HouseDetect:
             self.stone_color_options[color] = StoneData(color=color, **variables.stones.colors[color])
 
         self._variables = variables
+
+        if "rolling_center_n" in self._variables.house:
+            self._n = self._variables.house.rolling_center_n
+            self._rolling_center = np.zeros((self._variables.house.rolling_center_n, 2))
+            self.clean_center = np.zeros((2,))
+
+        # self.rolling_n = rolling_n
+
 
     def _load_envs(self, file):
         with open(file, 'r') as f:
@@ -81,23 +90,40 @@ class HouseDetect:
         centers, diameters = self.filter_circles(centers, diameters, min_diam, max_diam, std_range)
 
         if centers is None:
-            return None
+            return None, None
 
         center = centers.mean(axis = 0).astype(np.int64)
+
+        if "_rolling_center" in vars(self):
+            if self._n > 0:
+                self._rolling_center[self._n - 1] = center
+                self._n -= 1
+                self.clean_center = center
+            else:
+                self._rolling_center = np.roll(self._rolling_center, axis = 0, shift = 1)
+                self._rolling_center[0] = center
+                self.clean_center = self._rolling_center[np.any(~np.isnan(self._rolling_center), axis = 1)].mean(axis = 0)
+
+            out_center = self.clean_center.astype(np.int64)
+        else:
+            out_center = center
+
         if display:
             if display_img is None:
                 raise ValueError(f"Please pass in an image to draw on")
-
-            return center, self.show_center(display_img, center, text = False)
+            return out_center, self.show_center(display_img, out_center, text = False)
+        else:
+            return out_center, None
 
     def show_center(self, draw_img, center_coords, text = True, color = (0, 255, 0)):
         cv2.circle(
             draw_img,
-            center_coords,
+            center_coords.astype(np.int64),
             radius = 2,
             thickness = -1,
             color = color
         )
+
         if text:
             text_add = np.array([-30, -10])
 
@@ -181,6 +207,7 @@ class HouseDetect:
         no_ice = cv2.bitwise_and(hsv, hsv, mask=np.invert(mask))
         return cv2.cvtColor(no_ice, cv2.COLOR_HSV2RGB)
 
+    # TODO Reduce false positives on Blue
     def find_stones(self, img, stone_color, display = True, display_img = None):
         stone_data = self.stone_color_options[stone_color]
 
@@ -196,8 +223,12 @@ class HouseDetect:
         for contour in contours:
             hull = cv2.convexHull(contour)
             area = cv2.contourArea(hull)
-            if area > self._variables.stones.min_area:
-                ellipse = cv2.fitEllipse(hull)
+            if area > self._variables.stones.min_area and len(hull) > 5:
+                try:
+                    ellipse = cv2.fitEllipse(hull)
+                except Exception as e:
+                    print()
+
                 if np.diff(ellipse[1]) < self._variables.stones.axis_tolerance:
                     centers.append(ellipse[0])
 
@@ -208,17 +239,19 @@ class HouseDetect:
         else:
             if len(centers.coords) > 0:
 
-                if display_img is None:
-                    raise ValueError(f"Please pass in an image to draw on")
+                if display_img is not None:
+                    # raise ValueError(f"Please pass in an image to draw on")
 
-                for center in centers.coords:
-                    self._display_circle(
-                        img = display_img,
-                        center = center,
-                        color = stone_data.display_color,
-                        radius = self._variables.stones.draw_radius
-                    )
-                return centers, display_img
+                    for center in centers.coords:
+                        self._display_circle(
+                            img = display_img,
+                            center = center,
+                            color = stone_data.display_color,
+                            radius = self._variables.stones.draw_radius
+                        )
+                    return centers, display_img
+                else:
+                    return centers, display_img
             else:
                 return centers, img
 
@@ -235,17 +268,24 @@ class HouseDetect:
             if len(color.coords) <= 0 or color.coords is None:
                 print(f"No stones detected for {color.color}.")
                 # raise ValueError(f"No stones detected for {color.color}.")
+            else:
+                try:
+                    tmp_distance = color.distance_to_target(target)
+                    if tmp_distance is not None:
+                        tmp_distance = np.vstack([tmp_distance, np.full_like(tmp_distance, fill_value=color.label)]).transpose()
+                        if n == 0 or len(distances) <= 0:
+                            distances = tmp_distance
+                        else:
+                            distances = np.vstack([distances, tmp_distance])
+                except Exception as e:
+                    print()
 
-            tmp_distance = color.distance_to_target(target)
-            if tmp_distance is not None:
-                tmp_distance = np.vstack([tmp_distance, np.full_like(tmp_distance, fill_value=color.label)]).transpose()
-                if n == 0:
-                    distances = tmp_distance
-                else:
-                    distances = np.vstack([distances, tmp_distance])
+        if len(distances) > 0:
+            return distances[distances[:, 0].argsort()]
+        else:
+            return None
 
-        return distances[distances[:, 0].argsort()]
-
+    # TODO Figure out error handling of None values
     def current_score(self, img, color1, color2, display = True):
         display_img = img.copy() if display else None
         center, display_img = self.estimate_center(
@@ -260,6 +300,7 @@ class HouseDetect:
             display = True,
             display_img = display_img,
         )
+
         color2_stones, display_img = House.find_stones(
             img=img,
             stone_color=color2,
@@ -272,29 +313,39 @@ class HouseDetect:
             stones = [color1_stones, color2_stones]
         )
 
-        n = 0
-        close_label = distances[0, 1]
-        next_label = close_label
-        while next_label == close_label:
-            n += 1
-            next_label = distances[n, 1]
+        if distances is not None:
+            score = 0
+            close_label = distances[0, 1]
+            next_label = close_label
+            while next_label == close_label or score == len(distances):
+                score += 1
+                if score <= len(distances) - 1:
+                    next_label = distances[score, 1]
+                else:
+                    break
+                try:
+                    next_label = distances[score, 1]
+                except Exception as e:
+                    print()
 
-        score_summary = {
-            "score": n,
-            "color": color1 if color1_stones.label == close_label else color2
-        }
+            score_summary = {
+                "score": score,
+                "color": color1 if color1_stones.label == close_label else color2
+            }
 
-        if display:
-            cv2.putText(
-                display_img,
-                f"{score_summary['color'].capitalize()}: {score_summary['score']}",
-                (5, 15),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (255, 255, 255),
-                2,
-                cv2.LINE_AA
-            )
+            if display:
+                cv2.putText(
+                    display_img,
+                    f"{score_summary['color'].capitalize()}: {score_summary['score']}",
+                    (5, 15),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (255, 255, 255),
+                    2,
+                    cv2.LINE_AA
+                )
+        else:
+            score_summary = None
 
         return score_summary, display_img
 
@@ -361,36 +412,7 @@ if __name__ == "__main__":
             )
             img = np.array(img)
 
-            # img = cv2.cvtColor(np.array(img), cv2.COLOR_BGR2RGB)
             score, img = House.current_score(img, "blue", "yellow")
-            # if n > 0:
-            #     rolling_center[n - 1] = center
-            #     n -= 1
-            # else:
-            #     rolling_center = np.roll(rolling_center, axis=0, shift=1)
-            #     rolling_center[0] = center
-            #     clean_center = rolling_center[np.any(~np.isnan(rolling_center), axis=1)]
-            #     center = clean_center.mean(axis=0, dtype=np.int64)
-            #
-            # if center is not None and not np.any(np.isnan(center)):
-            #     print(f"Center is estimated to be {center}")
-            #     house_mask = cv2.circle(
-            #         img=np.zeros_like(img),
-            #         center=tuple(center),
-            #         radius=HOUSE_DIAM,
-            #         color=(255, 255, 255),
-            #         thickness=-1
-            #     )
-            #
-            #     img = House.filter_ice(img)
-            #     img, mask = House.filter_house(img)
-            #     img = cv2.bitwise_and(img, img, mask=house_mask[..., -1])
-            #
-            #     img = np.where(cv2.cvtColor(img, cv2.COLOR_RGB2GRAY) > 0, 255, 0).astype(np.uint8)
-            #     stones = find_stones(img)
-            #     House.show_center(img, center, text=False)
-            # else:
-            #     pass
 
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             cv2.imshow('test', img)
@@ -401,7 +423,7 @@ if __name__ == "__main__":
                     27,
             ):
                 break
-            time.sleep(0.4)
+            time.sleep(0.1)
 
 
 
