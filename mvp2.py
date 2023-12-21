@@ -249,9 +249,7 @@ class HouseDetect:
                             color = stone_data.display_color,
                             radius = self._variables.stones.draw_radius
                         )
-                    return centers, display_img
-                else:
-                    return centers, display_img
+                return centers, display_img
             else:
                 return centers, img
 
@@ -288,30 +286,40 @@ class HouseDetect:
     # TODO Figure out error handling of None values
     def current_score(self, img, color1, color2, display = True):
         display_img = img.copy() if display else None
+
         center, display_img = self.estimate_center(
             img = img,
             display = display,
             display_img = display_img
         )
 
-        color1_stones, display_img = House.find_stones(
-            img = img,
-            stone_color = color1,
-            display = True,
-            display_img = display_img,
-        )
+        if display_img is not None:
+            color1_stones, display_img = House.find_stones(
+                img = img,
+                stone_color = color1,
+                display = True,
+                display_img = display_img,
+            )
+        else:
+            display_img = img.copy()
 
-        color2_stones, display_img = House.find_stones(
-            img=img,
-            stone_color=color2,
-            display=True,
-            display_img=display_img,
-        )
+        if display_img is not None:
+            color2_stones, display_img = House.find_stones(
+                img=img,
+                stone_color=color2,
+                display=True,
+                display_img=display_img,
+            )
+        else:
+            display_img = img.copy()
 
-        distances = self.stone_distances(
-            target = center,
-            stones = [color1_stones, color2_stones]
-        )
+        if center is not None:
+            distances = self.stone_distances(
+                target = center,
+                stones = [color1_stones, color2_stones]
+            )
+        else:
+            distances = None
 
         if distances is not None:
             score = 0
@@ -391,8 +399,8 @@ if __name__ == "__main__":
     # plt.show()
 
     # Top
-    frame = {'left': 2368, 'top': -450, 'width': 178, 'height': 290}
-
+    frame = {'left': 2368, 'top': -440, 'width': 178, 'height': 285}
+    #
     # Bottom
     # frame = {'left': 2368, 'top': -145, 'width': 178, 'height': 290}
 
