@@ -1,42 +1,15 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from dataclasses import dataclass
-from typing import List
 import json, munch
+import pandas as pd
+
+from Stones import StoneData, StoneLocations
 
 
 np.seterr(divide='ignore', invalid='ignore')
 
 HOUSE_DIAM = 90
-
-@dataclass
-class StoneData:
-    color: str
-    display_color: List[int]
-    top_range: List[int]
-    bottom_range: List[int]
-    label: int
-
-    def __repr__(self):
-        return f"Stone(color={self.color})"
-
-class StoneInfo(StoneData):
-
-    def __init__(self, centers, **kwargs):
-        super().__init__(**kwargs)
-        self.coords = centers
-
-    def __repr__(self):
-        return f"Stone(numStones={len(self.coords)}, color={self.color})"
-
-    def distance_to_target(self, target):
-        if len(self.coords) > 0:
-            x_dist = np.power(self.coords[:, 1] - target[1], 2)
-            y_dist = np.power(self.coords[:, 0] - target[0], 2)
-            return np.sqrt(x_dist + y_dist)
-        else:
-            return None
 
 class HouseDetect:
 
@@ -65,20 +38,8 @@ class HouseDetect:
             data = json.load(f)
         return munch.munchify(data)
 
-    def _euclidean_distance(self, target, options):
-        pass
-
-    def _display_circle(self, img, center, color, radius):
-        return cv2.circle(
-            img = img,
-            center = center,
-            color = color,
-            radius = radius,
-            thickness = 1
-        )
-
-    def estimate_center(self, img, display = True, display_img = None):
-        self.image = self.process_image(img)
+    def estimate_center(self, img):
+        self.image = self._process_image(img)
         canny = cv2.Canny(self.image, 100, 200)
         self.canny = cv2.GaussianBlur(canny, ksize=(5, 5), sigmaX=1)
 
@@ -90,7 +51,7 @@ class HouseDetect:
         centers, diameters = self.filter_circles(centers, diameters, min_diam, max_diam, std_range)
 
         if centers is None:
-            return None, None
+            return None
 
         center = centers.mean(axis = 0).astype(np.int64)
 
@@ -108,38 +69,9 @@ class HouseDetect:
         else:
             out_center = center
 
-        if display:
-            if display_img is None:
-                raise ValueError(f"Please pass in an image to draw on")
-            return out_center, self.show_center(display_img, out_center, text = False)
-        else:
-            return out_center, None
+        return out_center
 
-    def show_center(self, draw_img, center_coords, text = True, color = (0, 255, 0)):
-        cv2.circle(
-            draw_img,
-            center_coords.astype(np.int64),
-            radius = 2,
-            thickness = -1,
-            color = color
-        )
-
-        if text:
-            text_add = np.array([-30, -10])
-
-            cv2.putText(
-                draw_img,
-                f"Center",
-                center_coords + text_add,
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (255, 0, 0),
-                2,
-                cv2.LINE_AA
-            )
-        return draw_img
-
-    def process_image(self, img):
+    def _process_image(self, img):
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         sharp = sharpen_image(img)
         return cv2.cvtColor(sharp, cv2.COLOR_RGB2GRAY)
@@ -208,7 +140,7 @@ class HouseDetect:
         return cv2.cvtColor(no_ice, cv2.COLOR_HSV2RGB)
 
     # TODO Reduce false positives on Blue
-    def find_stones(self, img, stone_color, display = True, display_img = None):
+    def find_stones(self, img, stone_color, center = None):
         stone_data = self.stone_color_options[stone_color]
 
         hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
@@ -232,132 +164,96 @@ class HouseDetect:
                 if np.diff(ellipse[1]) < self._variables.stones.axis_tolerance:
                     centers.append(ellipse[0])
 
-        centers = StoneInfo(np.array(centers).astype(np.int64), **vars(stone_data))
-
-        if not display:
-            return centers, None
-        else:
-            if len(centers.coords) > 0:
-
-                if display_img is not None:
-                    # raise ValueError(f"Please pass in an image to draw on")
-
-                    for center in centers.coords:
-                        self._display_circle(
-                            img = display_img,
-                            center = center,
-                            color = stone_data.display_color,
-                            radius = self._variables.stones.draw_radius
-                        )
-                return centers, display_img
-            else:
-                return centers, img
-
-    def stone_distances(self, target, stones):
-
-        if len(stones) <= 0 or stones is None:
-            raise ValueError(f"No stones detected. Unable to determine closest")
-
-        if target is None:
-            raise ValueError(f"No center able to be determined. Unable to determine closest")
-
-        distances = np.array([])
-        for n, color in enumerate(stones):
-            if len(color.coords) <= 0 or color.coords is None:
-                print(f"No stones detected for {color.color}.")
-                # raise ValueError(f"No stones detected for {color.color}.")
-            else:
-                try:
-                    tmp_distance = color.distance_to_target(target)
-                    if tmp_distance is not None:
-                        tmp_distance = np.vstack([tmp_distance, np.full_like(tmp_distance, fill_value=color.label)]).transpose()
-                        if n == 0 or len(distances) <= 0:
-                            distances = tmp_distance
-                        else:
-                            distances = np.vstack([distances, tmp_distance])
-                except Exception as e:
-                    print()
-
-        if len(distances) > 0:
-            return distances[distances[:, 0].argsort()]
-        else:
-            return None
-
-    # TODO Figure out error handling of None values
-    def current_score(self, img, color1, color2, display = True):
-        display_img = img.copy() if display else None
-
-        center, display_img = self.estimate_center(
-            img = img,
-            display = display,
-            display_img = display_img
-        )
-
-        if display_img is not None:
-            color1_stones, display_img = House.find_stones(
-                img = img,
-                stone_color = color1,
-                display = True,
-                display_img = display_img,
-            )
-        else:
-            display_img = img.copy()
-
-        if display_img is not None:
-            color2_stones, display_img = House.find_stones(
-                img=img,
-                stone_color=color2,
-                display=True,
-                display_img=display_img,
-            )
-        else:
-            display_img = img.copy()
+        stones = StoneLocations(np.array(centers).astype(np.int64), **vars(stone_data))
 
         if center is not None:
-            distances = self.stone_distances(
-                target = center,
-                stones = [color1_stones, color2_stones]
-            )
-        else:
-            distances = None
+            stones.distance_to_target(center)
 
-        if distances is not None:
+        return stones
+
+    def stone_df(self, stone1, stone2):
+        stones = pd.concat([stone1.toDf(), stone2.toDf()])
+
+        if "distance" in stones.columns:
+            stones = stones.sort_values(by="distance")
+        return stones
+
+    def current_score(self, stones):
+
+        if "distance" in stones.columns:
             score = 0
-            close_label = distances[0, 1]
-            next_label = close_label
-            while next_label == close_label or score == len(distances):
-                score += 1
-                if score <= len(distances) - 1:
-                    next_label = distances[score, 1]
-                else:
+            closest = stones.iloc[0]
+            next_closest = closest
+            while next_closest.color == closest.color and score <= len(stones):
+                if closest.distance >= self._variables.house.house_size:
                     break
-                try:
-                    next_label = distances[score, 1]
-                except Exception as e:
-                    print()
+                score += 1
+                closest = next_closest
+                next_closest = stones.iloc[score]
 
-            score_summary = {
-                "score": score,
-                "color": color1 if color1_stones.label == close_label else color2
-            }
+            if score > 0:
+                return {"color": stones.iloc[0].color, "score": score}
+            else:
+                return None
 
-            if display:
+    def show_stones(self, draw_img, stones):
+        for n, stone in stones.iterrows():
+            if "distance" in stones.columns:
+                thickness = -1 if stone.distance > self._variables.house.house_size else 1
+            else:
+                thickness = 1
+
+            cv2.circle(
+                draw_img,
+                (stone.x_coords, stone.y_coords),
+                radius=4,
+                thickness=thickness,
+                color=self._variables.stones.colors[stone.color].display_color
+            )
+        return draw_img
+
+    def show_center(self, draw_img, center_coords, text=True, color=(0, 255, 0)):
+        if center_coords is not None:
+            cv2.circle(
+                draw_img,
+                center_coords.astype(np.int64),
+                radius=2,
+                thickness=-1,
+                color=color
+            )
+
+            if text:
+                text_add = np.array([-30, -10])
+
                 cv2.putText(
-                    display_img,
-                    f"{score_summary['color'].capitalize()}: {score_summary['score']}",
-                    (5, 15),
+                    draw_img,
+                    f"Center",
+                    center_coords + text_add,
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.5,
-                    (255, 255, 255),
+                    (255, 0, 0),
                     2,
                     cv2.LINE_AA
                 )
+        return draw_img
+
+    def show_score(self, display_img, score):
+        if score is not None:
+            text = f"{score['color'].capitalize()}: {score['score']}"
         else:
-            score_summary = None
+            text = "Blank"
 
-        return score_summary, display_img
-
-
+        cv2.putText(
+            display_img,
+            text,
+            (5, 15),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA
+        )
+        return display_img
 
 def sharpen_image(img):
     kernel = np.array([
@@ -399,17 +295,16 @@ if __name__ == "__main__":
     # plt.show()
 
     # Top
-    frame = {'left': 2368, 'top': -440, 'width': 178, 'height': 285}
+    # frame = {'left': 2368, 'top': -440, 'width': 178, 'height': 285}
     #
     # Bottom
-    # frame = {'left': 2368, 'top': -145, 'width': 178, 'height': 290}
+    frame = {'left': 2368, 'top': -145, 'width': 178, 'height': 290}
 
     House = HouseDetect(env_variables_file = envs)
 
-    limit = 30
-    rolling_center = np.empty((limit, 2))
+    color1 = "blue"
+    color2 = "yellow"
 
-    n = limit
     with mss() as sct:
         while True:
             screenShot = sct.grab(frame)
@@ -420,11 +315,19 @@ if __name__ == "__main__":
             )
             img = np.array(img)
 
-            score, img = House.current_score(img, "blue", "yellow")
+            house_center = House.estimate_center(img)
+            stones1 = House.find_stones(img, color1, center=house_center)
+            stones2 = House.find_stones(img, color2, center=house_center)
+            stones_df = House.stone_df(stones1, stones2)
+            score = House.current_score(stones_df)
+
+            img = House.show_center(img, house_center, text=False)
+            img = House.show_stones(img, stones_df)
+            img = House.show_score(img, score)
 
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             cv2.imshow('test', img)
-            print(f"Running")
+            print(f"Current Score: {score if score is not None else 'None'}")
 
             if cv2.waitKey(33) & 0xFF in (
                     ord('q'),
