@@ -15,7 +15,7 @@ def filter_ice(img):
 def nothing(x):
     pass
 
-file = "data/lots2.png"
+file = "data/skip-detect.png"
 
 img = cv2.imread(file)
 # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -46,7 +46,7 @@ while True:
     top_range = np.clip(hsv_val + tol, 0, 255)
     bot_range = np.clip(hsv_val - tol, 0, 255)
 
-    # bot_range[0] = 15; top_range[0] = 50
+    bot_range[0] = 0; top_range[0] = 110
     bot_range[1] = 100; top_range[1] = 255
     bot_range[2] = 0; top_range[2] = 150
     #

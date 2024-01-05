@@ -149,6 +149,8 @@ class HouseDetect:
         mask = cv2.inRange(hsv, lower, upper)
         stones = cv2.bitwise_and(img, img, mask = mask)
         stones = cv2.cvtColor(stones, cv2.COLOR_RGB2GRAY)
+        _, stones = cv2.threshold(stones, 20, 255, cv2.THRESH_BINARY)
+        _, stones = cv2.threshold(stones, 60, 255, cv2.THRESH_TRUNC)
         contours, hierarchy = cv2.findContours(stones.astype(np.uint8), 1, 1)
 
         centers = []
@@ -181,22 +183,31 @@ class HouseDetect:
     def current_score(self, stones):
 
         if "distance" in stones.columns:
+            valid_stones = stones[stones["distance"] < self._variables.house.house_size]
+
             score = 0
-            closest = stones.iloc[0]
-            next_closest = closest
-            while next_closest.color == closest.color and score <= len(stones):
-                if closest.distance >= self._variables.house.house_size:
-                    break
-                score += 1
-                closest = next_closest
-                next_closest = stones.iloc[score]
+
+            if len(valid_stones) >= 1:
+                closest = valid_stones.iloc[0]
+                next_closest = valid_stones.iloc[1] if len(valid_stones) >= 2 else None
+                while closest is not None and next_closest is not None and next_closest.color == closest.color:
+                    score += 1
+
+                    if score >= len(valid_stones):
+                        break
+
+                    closest = next_closest
+                    next_closest = valid_stones.iloc[score]
+
+                score = score + 1 if score == 0 else score
+
 
             if score > 0:
                 return {"color": stones.iloc[0].color, "score": score}
             else:
                 return None
 
-    def show_stones(self, draw_img, stones):
+    def show_stones(self, draw_img, stones, scale = 1):
         for n, stone in stones.iterrows():
             if "distance" in stones.columns:
                 thickness = -1 if stone.distance > self._variables.house.house_size else 1
@@ -205,7 +216,7 @@ class HouseDetect:
 
             cv2.circle(
                 draw_img,
-                (stone.x_coords, stone.y_coords),
+                (int(scale * stone.x_coords), int(scale * stone.y_coords)),
                 radius=4,
                 thickness=thickness,
                 color=self._variables.stones.colors[stone.color].display_color
@@ -322,7 +333,7 @@ if __name__ == "__main__":
             score = House.current_score(stones_df)
 
             img = House.show_center(img, house_center, text=False)
-            img = House.show_stones(img, stones_df)
+            img = House.show_stones(img, stones_df, scale = 1)
             img = House.show_score(img, score)
 
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)

@@ -7,7 +7,8 @@
 I recently got into curling and was looking for streams to be able to watch some curling and get better. I came across this [stream](https://www.youtube.com/watch?v=usWs96-6-O0) a with a perfect overhead view of the house. Previously I have taken a computer vision and a computation photography class in my masters program and was looking for practical applications of the skills that I had gained. I wanted to see if I would be able to detect the current score of the end by using the overhead views that are on the stream. While it is relatively easy to keep score by just looking at the house, I thought it would be a good test of my skills and nice double check that you scored the end correctly.
 
 ## How it works
-pass
+
+TODO Break down the current algorithm
 
 ## Potential Applications
 This could be applied to couple of different things that would be useful outside of just keeping track of the score.

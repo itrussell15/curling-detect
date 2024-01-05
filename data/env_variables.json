@@ -44,7 +44,7 @@
           255
         ],
         "top_range": [
-          150,
+          140,
           255,
           150
         ],
@@ -61,7 +61,7 @@
   "axis_tolerance": 5
   },
   "house": {
-    "house_size": 90,
+    "house_size": 87,
     "rolling_center_n": 30
   }
 }

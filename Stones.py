@@ -34,12 +34,15 @@ class StoneLocations(StoneData):
             return None
 
     def toDf(self):
-        df = pd.DataFrame()
-        df[["x_coords", "y_coords"]] = self.coords
-        df["label"] = self.label
-        df["color"] = self.color
+        if len(self.coords) > 0:
+            df = pd.DataFrame()
+            df[["x_coords", "y_coords"]] = self.coords
+            df["label"] = self.label
+            df["color"] = self.color
 
-        if self.distances is not None:
-            df["distance"] = self.distances
+            if self.distances is not None:
+                df["distance"] = self.distances
+        else:
+            df = pd.DataFrame(columns = ['x_coords', "y_coords", "label", "color"])
 
         return df
